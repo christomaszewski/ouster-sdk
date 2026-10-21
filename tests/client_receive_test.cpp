@@ -22,9 +22,15 @@ namespace {
 namespace core = ouster::sdk::core;
 namespace sensor = ouster::sdk::sensor;
 
+struct ReceiveProfile {
+    bool is_imu;
+    size_t packet_size;
+    const char* name;
+};
+
 // Exercise both old client sockets without connecting to or configuring a
-// physical sensor. The bool parameter selects the legacy IMU packet size.
-class ClientReceiveTest : public ::testing::TestWithParam<bool> {
+// physical sensor, including the larger 128-beam legacy lidar packets.
+class ClientReceiveTest : public ::testing::TestWithParam<ReceiveProfile> {
    protected:
     std::shared_ptr<sensor::Client> client_;
     SOCKET sender_{static_cast<SOCKET>(SOCKET_ERROR)};
@@ -37,9 +43,9 @@ class ClientReceiveTest : public ::testing::TestWithParam<bool> {
         ASSERT_NE(sender_, SOCKET_ERROR);
         destination_.sin_family = AF_INET;
         destination_.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        destination_.sin_port =
-            htons(GetParam() ? sensor::get_imu_port(*client_)
-                             : sensor::get_lidar_port(*client_));
+        destination_.sin_port = htons(GetParam().is_imu
+                                         ? sensor::get_imu_port(*client_)
+                                         : sensor::get_lidar_port(*client_));
     }
 
     void TearDown() override {
@@ -52,7 +58,7 @@ class ClientReceiveTest : public ::testing::TestWithParam<bool> {
         }
     }
 
-    size_t packet_size() const { return GetParam() ? 48 : 12608; }
+    size_t packet_size() const { return GetParam().packet_size; }
 
     void send(const std::vector<uint8_t>& payload) {
         // A non-null pointer also works for the zero-length datagram test.
@@ -66,18 +72,18 @@ class ClientReceiveTest : public ::testing::TestWithParam<bool> {
         ASSERT_EQ(sent, static_cast<decltype(sent)>(payload.size()));
         auto state = sensor::poll_client(*client_, 1);
         ASSERT_TRUE(state &
-                    (GetParam() ? sensor::IMU_DATA : sensor::LIDAR_DATA));
+                    (GetParam().is_imu ? sensor::IMU_DATA : sensor::LIDAR_DATA));
     }
 
     bool receive(uint8_t* data) {
-        return GetParam()
+        return GetParam().is_imu
                    ? sensor::read_imu_packet(*client_, data, packet_size())
                    : sensor::read_lidar_packet(*client_, data, packet_size());
     }
 
     bool receive(core::ImuPacket& imu, core::LidarPacket& lidar) {
-        return GetParam() ? sensor::read_imu_packet(*client_, imu)
-                          : sensor::read_lidar_packet(*client_, lidar);
+        return GetParam().is_imu ? sensor::read_imu_packet(*client_, imu)
+                                 : sensor::read_lidar_packet(*client_, lidar);
     }
 };
 
@@ -116,8 +122,8 @@ TEST_P(ClientReceiveTest, RejectsWrongSizesWithoutWritingPastTheBuffer) {
 TEST_P(ClientReceiveTest, PacketOverloadsStayBoundedAfterRawPublisherSwaps) {
     core::ImuPacket imu;
     core::LidarPacket lidar;
-    auto& packet = GetParam() ? static_cast<core::Packet&>(imu)
-                              : static_cast<core::Packet&>(lidar);
+    auto& packet = GetParam().is_imu ? static_cast<core::Packet&>(imu)
+                                    : static_cast<core::Packet&>(lidar);
     packet.buf.resize(packet_size());
     std::vector<uint8_t> raw_message(packet_size());
 
@@ -131,14 +137,26 @@ TEST_P(ClientReceiveTest, PacketOverloadsStayBoundedAfterRawPublisherSwaps) {
         // This mirrors ouster_ros's raw publication, including replacement of
         // the packet's allocation by a vector without reserved spare bytes.
         packet.buf.swap(raw_message);
-        ASSERT_NO_FATAL_FAILURE(
-            send(std::vector<uint8_t>(packet_size() + 1, 0xa5)));
-        EXPECT_FALSE(receive(imu, lidar));
-        EXPECT_EQ(packet.buf.size(), packet_size());
+        EXPECT_EQ(raw_message, expected);
+        for (size_t extra : {size_t{1}, size_t{2048}}) {
+            ASSERT_NO_FATAL_FAILURE(
+                send(std::vector<uint8_t>(packet_size() + extra, 0xa5)));
+            EXPECT_FALSE(receive(imu, lidar));
+            EXPECT_EQ(packet.buf.size(), packet_size());
+            // The allocation handed to the raw publisher must remain intact
+            // while the SDK receives into its replacement allocation.
+            EXPECT_EQ(raw_message, expected);
+        }
     }
 }
 
-INSTANTIATE_TEST_CASE_P(LidarAndLegacyImu, ClientReceiveTest,
-                        ::testing::Bool());
+INSTANTIATE_TEST_CASE_P(
+    LegacyProfiles, ClientReceiveTest,
+    ::testing::Values(ReceiveProfile{true, 48, "Imu"},
+                      ReceiveProfile{false, 12608, "Lidar64"},
+                      ReceiveProfile{false, 24896, "Lidar128"}),
+    [](const ::testing::TestParamInfo<ReceiveProfile>& info) {
+        return info.param.name;
+    });
 
 }  // namespace

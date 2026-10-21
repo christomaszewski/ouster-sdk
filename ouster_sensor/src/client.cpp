@@ -29,6 +29,10 @@
 #include <thread>
 #include <vector>
 
+#ifndef _WIN32
+#include <sys/uio.h>
+#endif
+
 #include "jsoncons/basic_json.hpp"
 #include "ouster/defaults.h"
 #include "ouster/impl/client_poller.h"
@@ -651,10 +655,24 @@ ClientState poll_client(const Client& client, const int timeout_sec) {
 
 namespace {
 bool recv_fixed(SOCKET file_desc, void* buf, int64_t len) {
-    // Have to read longer than len because you need to know if the packet
-    // is too large
-    // NOLINTNEXTLINE (misc-include-cleaner)
-    int64_t bytes_read = recv(file_desc, static_cast<char*>(buf), len + 1, 0);
+    // Receive one extra byte to distinguish an oversized datagram from an
+    // exact-sized one, without writing beyond the caller's packet buffer.
+    char extra_byte;
+#ifdef _WIN32
+    WSABUF buffers[2]{{static_cast<ULONG>(len), static_cast<char*>(buf)},
+                      {1, &extra_byte}};
+    DWORD received = 0;
+    DWORD flags = 0;
+    int result =
+        WSARecv(file_desc, buffers, 2, &received, &flags, nullptr, nullptr);
+    int64_t bytes_read = result == 0 ? static_cast<int64_t>(received) : -1;
+#else
+    iovec buffers[2]{{buf, static_cast<size_t>(len)}, {&extra_byte, 1}};
+    msghdr message{};
+    message.msg_iov = buffers;
+    message.msg_iovlen = 2;
+    int64_t bytes_read = recvmsg(file_desc, &message, 0);
+#endif
 
     if (bytes_read == len) {
         return true;

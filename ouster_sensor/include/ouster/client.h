@@ -193,7 +193,7 @@ ClientState poll_client(const Client& cli, int timeout_sec = 1);
  *
  * @param[in] cli client returned by init_client associated with the connection.
  * @param[out] buf buffer to which to write lidar data. Must be at least
- * lidar_packet_bytes + 1 bytes.
+ * lidar_packet_bytes bytes.
  * @param[in] pf The packet format.
  *
  * @return true if a lidar packet was successfully read.
@@ -207,7 +207,7 @@ bool read_lidar_packet(const Client& cli, uint8_t* buf,
  *
  * @param[in] cli client returned by init_client associated with the connection.
  * @param[out] buf buffer to which to write lidar data. Must be at least
- * `bytes + 1` bytes.
+ * `bytes` bytes.
  * @param[in] bytes expected number of bytes in the packet
  *
  * @return true if a lidar packet was successfully read.
@@ -233,11 +233,11 @@ bool read_lidar_packet(const Client& cli,
  * Read imu data from the sensor. Will not block.
  *
  * @param[in] cli client returned by init_client associated with the connection.
- * @param[out] buf buffer to which to write lidar data. Must be at least
- * `bytes + 1` bytes.
+ * @param[out] buf buffer to which to write imu data. Must be at least
+ * `bytes` bytes.
  * @param[in] bytes expected number of bytes in the packet
  *
- * @return true if a lidar packet was successfully read.
+ * @return true if an imu packet was successfully read.
  */
 OUSTER_API_FUNCTION
 bool read_imu_packet(const Client& cli, uint8_t* buf, size_t bytes);
@@ -247,7 +247,7 @@ bool read_imu_packet(const Client& cli, uint8_t* buf, size_t bytes);
  *
  * @param[in] cli client returned by init_client associated with the connection.
  * @param[out] buf buffer to which to write imu data. Must be at least
- * imu_packet_bytes + 1 bytes.
+ * imu_packet_bytes bytes.
  * @param[in] pf The packet format.
  *
  * @return true if an imu packet was successfully read.

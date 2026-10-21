@@ -13,8 +13,7 @@ namespace core {
 Packet::Packet(PacketType type) : type_(type), host_timestamp{0} {}
 
 Packet::Packet(PacketType type, int size) : type_(type), host_timestamp{0} {
-    // this is necessary due to how client works - it may read size() + 1
-    // bytes into the packet in case of rogue packet coming through
+    // Retain spare capacity for compatibility with older client implementations.
     buf.reserve(size + 1);
     buf.resize(size, 0);
 }

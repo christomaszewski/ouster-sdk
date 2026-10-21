@@ -27,7 +27,7 @@ namespace sensor = ouster::sdk::sensor;
 class ClientReceiveTest : public ::testing::TestWithParam<bool> {
    protected:
     std::shared_ptr<sensor::Client> client_;
-    SOCKET sender_{SOCKET_ERROR};
+    SOCKET sender_{static_cast<SOCKET>(SOCKET_ERROR)};
     sockaddr_in destination_{};
 
     void SetUp() override {

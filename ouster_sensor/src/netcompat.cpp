@@ -44,7 +44,8 @@ namespace impl {
 struct StaticWrapper {
     WSADATA wsa_data;
 
-    StaticWrapper() { WSAStartup(MAKEWORD(1, 1), &wsa_data); }
+    // Scatter/gather receives use the Winsock 2 API.
+    StaticWrapper() { WSAStartup(MAKEWORD(2, 2), &wsa_data); }
 
     ~StaticWrapper() { WSACleanup(); }
 };

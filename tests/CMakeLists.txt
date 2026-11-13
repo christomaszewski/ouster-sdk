@@ -199,6 +199,7 @@ ouster_test(parsing_benchmark_test "parsing_benchmark_test.cpp;util.h" "" ${CMAK
 endif()
 ouster_test(cartesian_test "cartesian_test.cpp;util.h" "${GTEST_FILTER}" ${CMAKE_CURRENT_LIST_DIR}/pcaps/)
 ouster_test(destagger_test "destagger_test.cpp" "${GTEST_FILTER}" ${CMAKE_CURRENT_LIST_DIR}/pcaps/)
+ouster_test(image_processing_test "image_processing_test.cpp" "${GTEST_FILTER}" "")
 
 ouster_test(open_source_test "open_source_test.cpp" "${GTEST_FILTER}" ${CMAKE_CURRENT_LIST_DIR}/)
 if (TARGET open_source_test)

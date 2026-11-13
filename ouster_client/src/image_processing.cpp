@@ -208,33 +208,33 @@ void AutoExposure::apply(Eigen::Ref<img_t<T>> image, bool update_state) {
 
     if (counter_ == 0 && update_state) {
         const size_t num_elements = key_eigen.rows();
-        std::vector<size_t> indices;
-        indices.reserve(num_elements);
+        // Keep the sampled values contiguous: percentile selection need not
+        // repeatedly gather image values through a separate index array.
+        std::vector<T> samples;
+        samples.reserve(num_elements / AE_STRIDE + (num_elements % AE_STRIDE != 0));
         for (size_t i = 0; i < num_elements; i += AE_STRIDE) {
             // ignore 0 values, which are often due to dropped packets etc
             if (key_eigen[i] > 0) {
-                indices.push_back(i);
+                samples.push_back(key_eigen[i]);
             }
         }
-        if (indices.size() < AE_MIN_NONZERO_POINTS) {
+        if (samples.size() < AE_MIN_NONZERO_POINTS) {
             // too few nonzero values, nothing to do
             return;
         }
-        auto cmp = [&](const size_t a, const size_t b) { return key_eigen(a) < key_eigen(b); };
-
         const size_t lo_kth_extreme =
-            static_cast<size_t>(static_cast<double>(indices.size()) * lo_percentile_);
-        std::nth_element(indices.begin(),
-                         indices.begin() + static_cast<std::ptrdiff_t>(lo_kth_extreme),
-                         indices.end(), cmp);
-        lo_ = key_eigen[*(indices.begin() + static_cast<std::ptrdiff_t>(lo_kth_extreme))];
+            static_cast<size_t>(static_cast<double>(samples.size()) * lo_percentile_);
+        std::nth_element(samples.begin(),
+                         samples.begin() + static_cast<std::ptrdiff_t>(lo_kth_extreme),
+                         samples.end());
+        lo_ = samples[lo_kth_extreme];
 
         const size_t hi_kth_extreme =
-            static_cast<size_t>(static_cast<double>(indices.size()) * hi_percentile_);
-        std::nth_element(indices.begin() + static_cast<std::ptrdiff_t>(lo_kth_extreme),
-                         indices.end() - static_cast<std::ptrdiff_t>(hi_kth_extreme) - 1,
-                         indices.end(), cmp);
-        hi_ = key_eigen[*(indices.end() - static_cast<std::ptrdiff_t>(hi_kth_extreme) - 1)];
+            static_cast<size_t>(static_cast<double>(samples.size()) * hi_percentile_);
+        std::nth_element(samples.begin() + static_cast<std::ptrdiff_t>(lo_kth_extreme),
+                         samples.end() - static_cast<std::ptrdiff_t>(hi_kth_extreme) - 1,
+                         samples.end());
+        hi_ = *(samples.end() - static_cast<std::ptrdiff_t>(hi_kth_extreme) - 1);
 
         if (!initialized_) {
             initialized_ = true;

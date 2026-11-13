@@ -522,11 +522,7 @@ Eigen::Array<T, -1, 1> compute_dark_count(const Eigen::Ref<img_t<T>>& image) {
     const size_t image_h = image.rows();
     const size_t image_w = image.cols();
 
-    Eigen::Array<T, -1, 1> tmp = Eigen::Array<T, -1, 1>::Zero(image_w);
     Eigen::Array<T, -1, 1> new_dark_count = Eigen::Array<T, -1, 1>::Zero(image_h);
-
-    // probably computed lazily when used below?
-    auto row_diffs = image.bottomRows(image_h - 1) - image.topRows(image_h - 1);
 
     // to handle azimuth-masked data, only consider columns with nonzero values
     Eigen::Array<bool, -1, 1> col_mask = image.template cast<bool>().colwise().any();
@@ -536,18 +532,16 @@ Eigen::Array<T, -1, 1> compute_dark_count(const Eigen::Ref<img_t<T>>& image) {
         return new_dark_count;
     }
 
-    img_t<T> row_diffs_nonzero{image_h - 1, n_cols};
-    for (size_t i = 0, j = 0; i < image_w && j < n_cols; i++) {
-        if (col_mask[i]) {
-            row_diffs_nonzero.col(static_cast<Eigen::Index>(j)) =
-                row_diffs.col(static_cast<Eigen::Index>(i));
-            j++;
-        }
-    }
-
     // compute the median of differences between rows
+    // Fill only the row consumed by selection, in the same valid-column order.
+    // This avoids materializing and then copying the full difference image.
+    Eigen::Array<T, -1, 1> tmp(n_cols);
     for (size_t i = 1; i < image_h; i++) {
-        tmp = row_diffs_nonzero.row(i - 1);
+        for (size_t column = 0, j = 0; column < image_w && j < n_cols; column++) {
+            if (col_mask[column]) {
+                tmp[j++] = image(i, column) - image(i - 1, column);
+            }
+        }
         std::nth_element(tmp.data(), tmp.data() + (n_cols / 2), tmp.data() + n_cols);
         new_dark_count[i] = new_dark_count[i - 1] + tmp[n_cols / 2];
     }

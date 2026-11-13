@@ -2,6 +2,7 @@
 // Keep the old algorithm independent of the linked SDK implementation.
 #pragma once
 #include <Eigen/Core>
+#include <Eigen/LU>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -100,6 +101,87 @@ void update(Eigen::Ref<img_t<T>> image, bool update_state) {
     if (update_state) {
         counter_ = (counter_ + 1) % ae_update_every_;
     }
+}
+
+};
+
+// Frozen BUC reference from the same pinned revision.
+constexpr double BUC_DAMPING = 0.92;
+constexpr int BUC_UPDATE_EVERY = 8;
+template <typename T>
+Eigen::Array<T, -1, 1> compute_dark_count(const Eigen::Ref<img_t<T>>& image) {
+    const size_t image_h = image.rows();
+    const size_t image_w = image.cols();
+
+    Eigen::Array<T, -1, 1> tmp = Eigen::Array<T, -1, 1>::Zero(image_w);
+    Eigen::Array<T, -1, 1> new_dark_count = Eigen::Array<T, -1, 1>::Zero(image_h);
+
+    // probably computed lazily when used below?
+    auto row_diffs = image.bottomRows(image_h - 1) - image.topRows(image_h - 1);
+
+    // to handle azimuth-masked data, only consider columns with nonzero values
+    Eigen::Array<bool, -1, 1> col_mask = image.template cast<bool>().colwise().any();
+    const size_t n_cols = col_mask.count();
+
+    if (n_cols == 0) {
+        return new_dark_count;
+    }
+
+    img_t<T> row_diffs_nonzero{image_h - 1, n_cols};
+    for (size_t i = 0, j = 0; i < image_w && j < n_cols; i++) {
+        if (col_mask[i]) {
+            row_diffs_nonzero.col(static_cast<Eigen::Index>(j)) =
+                row_diffs.col(static_cast<Eigen::Index>(i));
+            j++;
+        }
+    }
+
+    // compute the median of differences between rows
+    for (size_t i = 1; i < image_h; i++) {
+        tmp = row_diffs_nonzero.row(i - 1);
+        std::nth_element(tmp.data(), tmp.data() + (n_cols / 2), tmp.data() + n_cols);
+        new_dark_count[i] = new_dark_count[i - 1] + tmp[n_cols / 2];
+    }
+
+    // remove gradients in the entire height of image by doing linear fit
+    Eigen::Matrix<T, -1, 2> image_array(image_h, 2);
+    for (size_t i = 0; i < image_h; i++) {
+        image_array(i, 0) = 1;
+        image_array(i, 1) = static_cast<T>(i);
+    }
+    Eigen::Matrix<T, 2, 1> x = image_array.fullPivLu().solve(new_dark_count.matrix());
+    new_dark_count -= (image_array * x).array();
+
+    // subtract minimum value
+    new_dark_count -= new_dark_count.minCoeff();
+    return new_dark_count;
+}
+
+
+class BeamUniformityCorrector {
+    int counter_ = 0;
+    Eigen::ArrayXd dark_count_;
+   public:
+template <typename T>
+void update(Eigen::Ref<img_t<T>> image, bool update_state) {
+    const auto image_h = image.rows();
+
+    // compute dark counts, if necessary
+    if (dark_count_.size() != image_h) {
+        dark_count_ = compute_dark_count(image).template cast<double>();
+    } else if (update_state && counter_ == 0) {
+        // if previous state exists, update using exponential smoothing:
+        Eigen::ArrayXd new_dark_count = compute_dark_count(image).template cast<double>();
+        dark_count_ *= BUC_DAMPING;
+        dark_count_ += new_dark_count * (1.0 - BUC_DAMPING);
+    }
+    counter_ = (counter_ + 1) % BUC_UPDATE_EVERY;
+
+    // apply the dark count correction
+    image.colwise() -= dark_count_.cast<T>();
+
+    // clamp any negative values
+    image = image.cwiseMax(static_cast<T>(0));
 }
 
 };

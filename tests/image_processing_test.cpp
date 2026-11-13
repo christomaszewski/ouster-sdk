@@ -14,6 +14,7 @@
 namespace {
 using ouster::sdk::core::img_t;
 using ouster::sdk::core::image::AutoExposure;
+using ouster::sdk::core::image::BeamUniformityCorrector;
 
 enum class Pattern {
     Dense, Ties, Zero, Sparse99, Exactly100, Exceptional, Infinity,
@@ -157,6 +158,62 @@ TYPED_TEST(ImageProcessingEquivalence, AutoExposureFalseUpdatesDoNotAdvanceState
         auto reference = frame<TypeParam>(Pattern::Dense, iteration);
         auto candidate = reference;
         const bool update_state = iteration < 4 || iteration >= 24;
+        expected.template update<TypeParam>(reference, update_state);
+        actual.update(candidate, update_state);
+        expect_same_image(reference, candidate);
+    }
+}
+
+TYPED_TEST(ImageProcessingEquivalence, BeamCorrectionPatternsAndStateCadence) {
+    for (const auto pattern : {Pattern::Dense, Pattern::Ties, Pattern::Zero,
+                               Pattern::Sparse99, Pattern::Exactly100,
+                               Pattern::Exceptional, Pattern::Infinity,
+                               Pattern::Tiny, Pattern::Large, Pattern::MaskedColumns}) {
+        BeamUniformityCorrector actual;
+        image_processing_legacy::BeamUniformityCorrector expected;
+        for (int iteration = 0; iteration < 48; ++iteration) {
+            SCOPED_TRACE(::testing::Message() << "pattern=" << static_cast<int>(pattern)
+                         << " frame=" << iteration);
+            auto reference = frame<TypeParam>(pattern, iteration);
+            auto candidate = reference;
+            // BUC advances its modulo-eight counter even when update_state is
+            // false; different phases must remain observationally equivalent.
+            const bool update_state = iteration % 5 != 0 && iteration % 7 != 0;
+            expected.template update<TypeParam>(reference, update_state);
+            actual.update(candidate, update_state);
+            expect_same_image(reference, candidate);
+        }
+    }
+}
+
+TYPED_TEST(ImageProcessingEquivalence, BeamCorrectionShapeChangesAndMaskedColumns) {
+    BeamUniformityCorrector actual;
+    image_processing_legacy::BeamUniformityCorrector expected;
+    const int heights[] = {1, 8, 16, 128};
+    const int widths[] = {0, 1, 2, 17, 128, 2048};
+    const Pattern patterns[] = {Pattern::Dense, Pattern::MaskedColumns, Pattern::Zero, Pattern::Ties};
+    for (int iteration = 0; iteration < 48; ++iteration) {
+        SCOPED_TRACE(::testing::Message() << "frame=" << iteration);
+        const int height = heights[(iteration / 3) % 4];
+        const int width = widths[iteration % 6];
+        auto reference = frame<TypeParam>(patterns[iteration % 4], iteration, height, width);
+        auto candidate = reference;
+        // A changed height recomputes dark counts even with update_state=false.
+        const bool update_state = iteration % 3 == 2;
+        expected.template update<TypeParam>(reference, update_state);
+        actual.update(candidate, update_state);
+        expect_same_image(reference, candidate);
+    }
+}
+
+TYPED_TEST(ImageProcessingEquivalence, BeamCorrectionFalseUpdatesStillAdvanceCadence) {
+    BeamUniformityCorrector actual;
+    image_processing_legacy::BeamUniformityCorrector expected;
+    for (int iteration = 0; iteration < 40; ++iteration) {
+        SCOPED_TRACE(::testing::Message() << "frame=" << iteration);
+        auto reference = frame<TypeParam>(Pattern::Dense, iteration);
+        auto candidate = reference;
+        const bool update_state = iteration == 0 || iteration >= 23;
         expected.template update<TypeParam>(reference, update_state);
         actual.update(candidate, update_state);
         expect_same_image(reference, candidate);

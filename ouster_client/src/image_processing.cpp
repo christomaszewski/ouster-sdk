@@ -260,20 +260,23 @@ void AutoExposure::apply(Eigen::Ref<img_t<T>> image, bool update_state) {
     if (std::isinf(lo_hi_scale) || std::isnan(lo_hi_scale)) {
         // map everything relative to hi_state being 0.5 due to small spread or
         // nan
-        key_eigen *= 0.5 / hi_state_;
+        key_eigen = (key_eigen * static_cast<T>(0.5 / hi_state_))
+                        .max(static_cast<T>(0)).min(static_cast<T>(1));
     } else if (lo_hi_scale * (0.0 - lo_state_) + lo_percentile_ <= 0.00) {
         // apply affine transformation
-        key_eigen -= lo_state_;
-        key_eigen *= lo_hi_scale;
-        key_eigen += lo_percentile_;
+        // Keep a stored intermediate between multiplication and addition so
+        // the old separate float operations cannot contract into an FMA.
+        // Subtraction followed by multiplication cannot itself form an FMA.
+        key_eigen = (key_eigen - static_cast<T>(lo_state_)) *
+                    static_cast<T>(lo_hi_scale);
+        key_eigen = (key_eigen + static_cast<T>(lo_percentile_))
+                        .max(static_cast<T>(0)).min(static_cast<T>(1));
     } else {
         // lo_hi_state transformation would map 0 to positive number
         // instead, map using only hi_state
-        key_eigen *= (1.0 - hi_percentile_) / (hi_state_);
+        key_eigen = (key_eigen * static_cast<T>((1.0 - hi_percentile_) / hi_state_))
+                        .max(static_cast<T>(0)).min(static_cast<T>(1));
     }
-
-    // clamp
-    key_eigen = key_eigen.max(static_cast<T>(0)).min(static_cast<T>(1));
 
     if (update_state) {
         counter_ = (counter_ + 1) % ae_update_every_;

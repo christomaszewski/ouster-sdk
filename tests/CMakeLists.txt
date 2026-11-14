@@ -203,6 +203,9 @@ ouster_test(image_processing_test "image_processing_test.cpp" "${GTEST_FILTER}" 
 # Explicit opt-in build/run only; timing is not a correctness gate.
 add_executable(image_processing_benchmark EXCLUDE_FROM_ALL image_processing_benchmark.cpp)
 target_link_libraries(image_processing_benchmark PRIVATE ${LIB_TO_USE})
+add_executable(image_processing_current_benchmark EXCLUDE_FROM_ALL
+  image_processing_current_benchmark.cpp image_processing_frozen.cpp)
+target_link_libraries(image_processing_current_benchmark PRIVATE ${LIB_TO_USE})
 
 ouster_test(open_source_test "open_source_test.cpp" "${GTEST_FILTER}" ${CMAKE_CURRENT_LIST_DIR}/)
 if (TARGET open_source_test)
